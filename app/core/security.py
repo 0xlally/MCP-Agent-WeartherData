@@ -4,8 +4,21 @@
 """
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
+import uuid
+import hmac
+from sqlalchemy import update
 from jose import JWTError, jwt
-import bcrypt
+
+# ===== 变更说明 =====
+# 下面导入的模块用于增强 JWT 与 API Key 的安全性：
+# - `uuid`：生成每个 JWT 的 `jti`（唯一标识符），便于将来实现 token 撤销、审计或去重。
+# - `hmac`：使用 `hmac.compare_digest` 做常量时间比较，减少时间侧信道泄露（用于比较 API Key）。
+# - `sqlalchemy.update`：用于执行原子性更新（在 API Key 额度扣减时使用），可减少并发竞态导致的超扣或负数额度问题。
+#
+# 说明：这些改进均限定在本文件内（仅修改本模块），以降低改动范围与回归风险；如果需要更强的保证（例如
+# 把 API Key 存为哈希、或添加持久化的撤销表），则需要跨文件/数据库的更改。
+# ==============================================
+from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status, Header
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,33 +29,24 @@ from app.models.models import User, APIKey
 from app.schemas.schemas import TokenData
 
 
+# ========== 密码加密配置 ==========
+# （修改）使用 Argon2 提升密码哈希安全性（需要在 requirements 中安装 passlib[argon2]）
+pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+
 # ========== OAuth2 配置 ==========
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 
-# ========== 密码哈希工具 (直接使用 bcrypt) ==========
+# ========== 密码哈希工具 ==========
 
 def get_password_hash(password: str) -> str:
-    """加密密码 (bcrypt 限制最长 72 字节)"""
-    # 确保密码不超过 72 字节
-    password_bytes = password.encode('utf-8')
-    if len(password_bytes) > 72:
-        password_bytes = password_bytes[:72]
-    
-    # 使用 bcrypt 生成密码哈希
-    salt = bcrypt.gensalt(rounds=12)
-    hashed = bcrypt.hashpw(password_bytes, salt)
-    return hashed.decode('utf-8')
+    """加密密码"""
+    return pwd_context.hash(password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """验证密码"""
-    password_bytes = plain_password.encode('utf-8')
-    if len(password_bytes) > 72:
-        password_bytes = password_bytes[:72]
-    
-    hashed_bytes = hashed_password.encode('utf-8')
-    return bcrypt.checkpw(password_bytes, hashed_bytes)
+    return pwd_context.verify(plain_password, hashed_password)
 
 
 # ========== JWT Token 管理 ==========
@@ -65,9 +69,21 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     else:
         expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     
-    to_encode.update({"exp": expire})
+    # （修改）标准化声明：过期时间（exp）、颁发时间（iat）和唯一 id（jti）
+    # 安全理由：
+    # - `iat`（Issued At）可用于检测 token 的颁发时间和审计；
+    # - `jti`（JWT ID）为 token 提供全局唯一标识，便于将来实现基于 jti 的撤销列表或一次性刷新策略；
+    # - 在验证和审计流程中记录 jti 可以帮助发现重复使用或回放攻击。
+    # 注意：此处只是在 token 中设置 jti/iat，本身不实现撤销逻辑；需要额外的存储（内存/DB）来跟踪被撤销的 jti。
+    iat = datetime.utcnow()
+    jti = str(uuid.uuid4())
+    to_encode.update({"exp": expire, "iat": iat, "jti": jti})
+
+    # 签名说明：使用配置的算法进行签名。务必在生产中确保：
+    # - settings.ALGORITHM 与使用的密钥类型匹配（HS256 对称、RS256 非对称），
+    # - SECRET_KEY / 私钥以安全方式存放（环境变量/密钥管理服务），不要将密钥写入源码库。
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
-    
+
     return encoded_jwt
 
 
@@ -91,6 +107,22 @@ async def decode_access_token(token: str) -> TokenData:
     )
     
     try:
+        # （修改）变更说明：增强对 JWT header 中 alg 字段的验证，防止算法混淆攻击
+        # 先解析 header 并确保 alg 与配置一致，防止 alg 混淆攻击（algorithm confusion attack）
+        # 背景：攻击者可能构造一个使用不同算法（例如将 alg 改为 "none" 或从 RS 改为 HS）且被服务器误接受的 token。
+        # 为降低风险，这里在解码签名前检查 token header 的 `alg` 字段与服务期望的 `settings.ALGORITHM` 完全匹配。
+        # 备注：该检查可以阻止常见的 alg 混淆攻击，但并不能替代正确的密钥管理（例如确保私钥/公钥与算法一致）。
+        try:
+            unverified_header = jwt.get_unverified_header(token)
+            header_alg = unverified_header.get("alg")
+        except Exception:
+            header_alg = None
+
+        if header_alg is None or header_alg.upper() != settings.ALGORITHM.upper():
+            # 如果 header 中没有 alg 或与配置不符，则直接拒绝，返回 401
+            raise credentials_exception
+
+        # 解析并验证签名：使用配置的算法和密钥进行验证
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         username: str = payload.get("sub")
         role: str = payload.get("role")
@@ -171,7 +203,7 @@ async def verify_api_key(
     Raises:
         HTTPException: API Key 无效、额度不足或已禁用
     """
-    # 查询 API Key
+    # 查询 API Key（基于明文存储的现状）
     result = await db.execute(
         select(APIKey).where(APIKey.access_key == x_api_key)
     )
@@ -179,6 +211,13 @@ async def verify_api_key(
     
     # 验证 API Key 是否存在
     if api_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="API Key 无效"
+        )
+
+    # （修改）使用常量时间比较以减少时间侧信道泄露
+    if not hmac.compare_digest(str(api_key.access_key), str(x_api_key)):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="API Key 无效"
@@ -210,10 +249,30 @@ async def verify_api_key(
             detail="关联用户不存在或已禁用"
         )
     
-    # 扣减额度
-    api_key.remaining_quota -= 1
-    api_key.last_used_at = datetime.utcnow()
+    # （修改）尝试以原子方式扣减额度以避免并发竞态
+    if api_key.remaining_quota <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="API Key 额度已用尽，请联系管理员充值"
+        )
+
+    stmt = (
+        update(APIKey)
+        .where(APIKey.id == api_key.id, APIKey.remaining_quota > 0)
+        .values(remaining_quota=APIKey.remaining_quota - 1, last_used_at=datetime.utcnow())
+    )
+    res = await db.execute(stmt)
     await db.commit()
+    # res.rowcount 可能受驱动影响，若为0则说明并发导致扣减失败/额度已被其他请求消耗
+    try:
+        rowcount = res.rowcount
+    except Exception:
+        rowcount = None
+    if rowcount == 0:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="API Key 并发扣减失败或额度已用尽"
+        )
     
     return api_key, user
 

@@ -117,7 +117,7 @@ class SystemConfigUpdate(BaseModel):
     description: Optional[str] = None
 
 
-# ========== 天气数据相关 Schema (暂时 Mock) ==========
+# ========== 天气数据相关 Schema ==========
 
 class WeatherQuery(BaseModel):
     """天气数据查询参数"""
@@ -128,12 +128,24 @@ class WeatherQuery(BaseModel):
 
 
 class WeatherDataResponse(BaseModel):
-    """天气数据响应 (Mock 结构)"""
+    """天气数据响应模型"""
+    city: str = Field(..., description="城市名称")
+    date: str = Field(..., description="日期 YYYY-MM-DD")
+    weather_condition: str = Field(..., description="天气状况")
+    temp_min: float = Field(..., description="最低温度 (℃)")
+    temp_max: float = Field(..., description="最高温度 (℃)")
+    wind_info: str = Field(..., description="风力风向信息")
+
+
+class WeatherDataCreate(BaseModel):
+    """创建天气数据"""
     city: str
     date: str
-    temperature: float
-    humidity: float
-    description: str
+    weather_condition: str
+    temp_min: float
+    temp_max: float
+    temp_raw: Optional[str] = None
+    wind_info: str
 
 
 # ========== 通用响应模型 ==========

@@ -1,8 +1,8 @@
 ﻿"""
 数据库 ORM 模型
-定义用户、API Key、系统配置表
+定义用户、API Key、系统配置表、天气数据表
 """
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Text
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Text, Float, Date, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.db.database import Base
@@ -92,3 +92,42 @@ class SystemConfig(Base):
     
     def __repr__(self):
         return f"<SystemConfig(key={self.key}, value={self.value[:50]})>"
+
+
+class WeatherData(Base):
+    """天气数据表 - 存储历史天气记录"""
+    __tablename__ = "weather_data"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    
+    # 城市名称
+    city = Column(String(50), nullable=False, index=True)
+    
+    # 日期 (Date 类型，只存储日期不含时间)
+    date = Column(Date, nullable=False, index=True)
+    
+    # 天气状况描述 (如 "晴 / 多云")
+    weather_condition = Column(String(100), nullable=False)
+    
+    # 最低温度 (摄氏度)
+    temp_min = Column(Float, nullable=False)
+    
+    # 最高温度 (摄氏度)
+    temp_max = Column(Float, nullable=False)
+    
+    # 原始气温字符串 (如 "6℃-15℃")
+    temp_raw = Column(String(50), nullable=True)
+    
+    # 风力风向描述
+    wind_info = Column(String(200), nullable=False)
+    
+    # 数据导入时间
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # 复合索引：city + date (用于快速查询特定城市的历史数据)
+    __table_args__ = (
+        Index('idx_city_date', 'city', 'date'),
+    )
+    
+    def __repr__(self):
+        return f"<WeatherData(city={self.city}, date={self.date}, temp={self.temp_min}~{self.temp_max}℃)>"

@@ -5,7 +5,7 @@
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
 from fastapi import Depends, HTTPException, status, Header
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,23 +16,33 @@ from app.models.models import User, APIKey
 from app.schemas.schemas import TokenData
 
 
-# ========== 密码加密配置 ==========
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 # ========== OAuth2 配置 ==========
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 
-# ========== 密码哈希工具 ==========
+# ========== 密码哈希工具 (直接使用 bcrypt) ==========
 
 def get_password_hash(password: str) -> str:
-    """加密密码"""
-    return pwd_context.hash(password)
+    """加密密码 (bcrypt 限制最长 72 字节)"""
+    # 确保密码不超过 72 字节
+    password_bytes = password.encode('utf-8')
+    if len(password_bytes) > 72:
+        password_bytes = password_bytes[:72]
+    
+    # 使用 bcrypt 生成密码哈希
+    salt = bcrypt.gensalt(rounds=12)
+    hashed = bcrypt.hashpw(password_bytes, salt)
+    return hashed.decode('utf-8')
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """验证密码"""
-    return pwd_context.verify(plain_password, hashed_password)
+    password_bytes = plain_password.encode('utf-8')
+    if len(password_bytes) > 72:
+        password_bytes = password_bytes[:72]
+    
+    hashed_bytes = hashed_password.encode('utf-8')
+    return bcrypt.checkpw(password_bytes, hashed_bytes)
 
 
 # ========== JWT Token 管理 ==========

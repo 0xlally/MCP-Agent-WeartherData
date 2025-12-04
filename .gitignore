@@ -50,6 +50,24 @@ htmlcov/
 # 操作系统
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# 临时文件
+*.tmp
+*.bak
+*.swp
+*~
+
+# Docker
+*.pid
+*.seed
+*.pid.lock
+
+# 文档临时文件
+开发笔记.md
+docs/
+.DS_Store
+Thumbs.db
 
 # 项目特定
 data/*.csv

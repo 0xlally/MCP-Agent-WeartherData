@@ -6,7 +6,7 @@ import asyncio
 import httpx
 
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = "http://localhost:8080"
 
 
 async def test_api():
@@ -101,7 +101,7 @@ async def test_api():
             data = response.json()
             print(f"✅ 查询成功, 返回 {len(data)} 条数据:")
             for item in data:
-                print(f"   - {item['city']} {item['date']}: {item['temperature']}°C")
+                print(f"   - {item['city']} {item['date']}: {item['temp_min']}~{item['temp_max']}°C {item['weather_condition']}")
             print()
         else:
             print(f"❌ 查询失败: {response.json()}\n")

@@ -26,6 +26,7 @@
         <div class="actions">
           <button type="submit" :disabled="loading || !input.trim()">{{ loading ? '处理中...' : '发送' }}</button>
           <button type="button" :disabled="!downloadable" @click="downloadJson">下载 JSON</button>
+          <button type="button" :disabled="!hasTable" @click="downloadExcel">下载 Excel</button>
         </div>
       </form>
     </section>
@@ -51,7 +52,25 @@
 
       <div class="block" v-if="lastResult">
         <h3>最新结果（摘录）</h3>
-        <pre class="mini">{{ previewResult }}</pre>
+        <pre class="mini preview">{{ previewResult }}</pre>
+        <div class="actions">
+          <button type="button" :disabled="!downloadable" @click="downloadJson">下载 JSON</button>
+          <button type="button" :disabled="!hasTable" @click="downloadExcel">下载 Excel</button>
+        </div>
+        <div v-if="hasTable" class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th v-for="col in tableColumns" :key="col">{{ col }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(row, idx) in tableRows" :key="idx">
+                <td v-for="col in tableColumns" :key="col">{{ row[col] }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
   </div>
@@ -60,6 +79,7 @@
 <script setup>
 import { onMounted, ref, nextTick, computed } from 'vue';
 import { listTools, callTool } from '../api/agent.js';
+import * as XLSX from 'xlsx';
 
 const DEFAULT_LLM_BASE = import.meta.env.VITE_LLM_BASE || 'https://api.deepseek.com/v1';
 const DEFAULT_LLM_KEY = import.meta.env.VITE_LLM_KEY || '';
@@ -73,6 +93,8 @@ const toolList = ref([]);
 const plan = ref(null);
 const lastResult = ref(null);
 const downloadPayload = ref(null);
+const tableRows = ref([]);
+const tableColumns = ref([]);
 const llmBaseUrl = ref(localStorage.getItem('llm_base') || DEFAULT_LLM_BASE);
 const llmApiKey = ref(localStorage.getItem('llm_key') || DEFAULT_LLM_KEY);
 const scrollRef = ref(null);
@@ -82,6 +104,7 @@ const previewResult = computed(() => {
   if (!lastResult.value) return '';
   return JSON.stringify(lastResult.value, null, 2).slice(0, 900);
 });
+const hasTable = computed(() => Array.isArray(tableRows.value) && tableRows.value.length > 0);
 
 const saveLlmcfg = () => {
   localStorage.setItem('llm_base', llmBaseUrl.value || '');
@@ -111,11 +134,21 @@ const fetchTools = async () => {
 
 const heuristicPlan = (prompt) => {
   const lower = prompt.toLowerCase();
+  const aggHints = ['聚合', '按月', '每月', '月度', '季度', '年度', 'trend', '趋势', '平均', '均值'];
+  if (aggHints.some((h) => lower.includes(h))) {
+    return { tool: 'analysis_group_by_period', arguments: { period: 'month' } };
+  }
   if (lower.includes('概览') || lower.includes('overview') || lower.includes('总览')) {
     return { tool: 'data_get_dataset_overview', arguments: {} };
   }
   if (lower.includes('覆盖') || lower.includes('缺失') || lower.includes('missing')) {
     return { tool: 'data_check_coverage', arguments: {} };
+  }
+  if (lower.includes('描述') || lower.includes('统计') || lower.includes('方差') || lower.includes('std')) {
+    return { tool: 'analysis_describe_timeseries', arguments: {} };
+  }
+  if (lower.includes('预测') || lower.includes('forecast') || lower.includes('未来')) {
+    return { tool: 'analysis_simple_forecast', arguments: {} };
   }
   return { tool: 'data_get_range', arguments: {} };
 };
@@ -143,7 +176,7 @@ const callLlmForPlan = async (prompt) => {
       {
         role: 'system',
         content:
-          'You are a planner. Respond ONLY with JSON like {"tool": "data_get_range", "arguments": {...}}. Tools: data_get_range(city,start_date,end_date,limit), data_get_dataset_overview(), data_check_coverage(city,start_date,end_date), data_custom_query(fields,city,start_date,end_date,limit), data_update_city_range(city,start_date,end_date). Dates must be YYYY-MM-DD.',
+            'You are a planner. Respond ONLY with JSON like {"tool": "data_get_range", "arguments": {...}}. Tools: data_get_range(city,start_date,end_date,limit), data_get_dataset_overview(), data_check_coverage(city,start_date,end_date), data_custom_query(fields,city,start_date,end_date,limit), data_update_city_range(city,start_date,end_date), analysis_describe_timeseries(city,metric,start_date,end_date), analysis_group_by_period(city,metric,period,start_date,end_date), analysis_compare_cities(cities,metric,start_date,end_date), analysis_extreme_event_stats(city,metric,threshold,comparison,start_date,end_date), analysis_simple_forecast(city,metric,horizon_days). Dates must be YYYY-MM-DD. Interpret "high temperature" as daily max temp (metric=temp_max); when a threshold is needed and user does not provide one, default threshold=35C with comparison=">=".',
       },
       { role: 'user', content: prompt },
     ],
@@ -171,7 +204,16 @@ const callLlmForPlan = async (prompt) => {
 const normalizeToolName = (name) => {
   if (!name) return '';
   if (name.includes('.')) return name;
-  return name.replace('data_get', 'data.get').replace('data_check', 'data.check').replace('data_custom', 'data.custom').replace('data_update', 'data.update');
+  return name
+    .replace('data_get', 'data.get')
+    .replace('data_check', 'data.check')
+    .replace('data_custom', 'data.custom')
+    .replace('data_update', 'data.update')
+    .replace('analysis_describe', 'analysis.describe')
+    .replace('analysis_group', 'analysis.group')
+    .replace('analysis_compare', 'analysis.compare')
+    .replace('analysis_extreme', 'analysis.extreme')
+    .replace('analysis_simple', 'analysis.simple');
 };
 
 const pickDownloadPayload = (result) => {
@@ -180,6 +222,19 @@ const pickDownloadPayload = (result) => {
   if (Array.isArray(result.rows)) return result.rows;
   if (Array.isArray(result)) return result;
   return [result];
+};
+
+const pickTable = (result) => {
+  if (!result) return { rows: [], columns: [] };
+  const candidates = [result.items, result.rows, result.series, result.results, result.forecast, Array.isArray(result) ? result : null];
+  const arr = candidates.find((a) => Array.isArray(a) && a.length) || [];
+  const cols = Array.from(
+    arr.reduce((set, row) => {
+      Object.keys(row || {}).forEach((k) => set.add(k));
+      return set;
+    }, new Set())
+  );
+  return { rows: arr, columns: cols };
 };
 
 const handleSend = async () => {
@@ -197,7 +252,26 @@ const handleSend = async () => {
     scrollToBottom();
 
     const toolName = planResp.tool;
-    const payload = planResp.arguments || {};
+    const payload = { ...(planResp.arguments || {}) };
+    // normalize metric for analysis tools
+    if (toolName?.startsWith('analysis') || toolName?.startsWith('analysis_') || toolName?.startsWith('analysis.')) {
+      const m = (payload.metric || '').toLowerCase();
+      if (!m || m === 'temperature') payload.metric = 'temp_max';
+      else if (['temperature_max', 'tempmax', 'max_temp', 'tmax', 'high', '最高'].includes(m)) payload.metric = 'temp_max';
+      else if (['temperature_min', 'tempmin', 'min_temp', 'tmin', 'low', '最低'].includes(m)) payload.metric = 'temp_min';
+      else if (!['temp_max', 'temp_min'].includes(m)) payload.metric = 'temp_max';
+    }
+    if (toolName === 'analysis_extreme_event_stats' || toolName === 'analysis.extreme_event_stats') {
+      const cmp = (payload.comparison || '').toLowerCase();
+      if (['greater', 'gt'].includes(cmp)) payload.comparison = '>';
+      else if (['less', 'lt'].includes(cmp)) payload.comparison = '<';
+      else if (['greater_equal', 'ge', 'gte'].includes(cmp)) payload.comparison = '>=';
+      else if (['less_equal', 'le', 'lte'].includes(cmp)) payload.comparison = '<=';
+      else if (!['>', '<', '>=', '<='].includes(payload.comparison)) payload.comparison = '>=';
+    }
+    if (toolName === 'analysis_group_by_period' || toolName === 'analysis.group_by_period') {
+      if (!payload.period) payload.period = 'month';
+    }
     const apiTool = normalizeToolName(toolName);
     const result = await callTool(apiTool, payload);
     lastResult.value = result;
@@ -207,11 +281,20 @@ const handleSend = async () => {
       ? `共 ${result.items.length} 条`
       : Array.isArray(result?.rows)
       ? `共 ${result.rows.length} 条`
+      : Array.isArray(result?.series)
+      ? `共 ${result.series.length} 个分组`
       : '已返回结果';
-    messages.value.push({ role: 'assistant', content: `调用完成: ${apiTool}\n${summary}` });
+    const previewText = JSON.stringify(result).slice(0, 1200);
+    messages.value.push({ role: 'assistant', content: `调用完成: ${apiTool}\n${summary}\n预览:\n${previewText}` });
+
+    const { rows: tRows, columns: tCols } = pickTable(result);
+    tableRows.value = tRows;
+    tableColumns.value = tCols;
   } catch (err) {
     console.error(err);
     messages.value.push({ role: 'assistant', content: `出错: ${err?.message || err}` });
+    tableRows.value = [];
+    tableColumns.value = [];
   } finally {
     loading.value = false;
     scrollToBottom();
@@ -225,6 +308,21 @@ const downloadJson = () => {
   const a = document.createElement('a');
   a.href = url;
   a.download = 'weather_agent_result.json';
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+const downloadExcel = () => {
+  if (!hasTable.value) return;
+  const sheet = XLSX.utils.json_to_sheet(tableRows.value || []);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, sheet, 'Sheet1');
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'weather_agent_result.xlsx';
   a.click();
   URL.revokeObjectURL(url);
 };
@@ -413,6 +511,35 @@ onMounted(() => {
 .tool-list {
   display: flex;
   flex-direction: column;
+
+.preview {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.table-wrap {
+  overflow: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  margin-top: 10px;
+}
+
+.table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.table-wrap th,
+.table-wrap td {
+  padding: 8px;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: left;
+}
+
+.table-wrap thead {
+  background: #f8fafc;
+}
   gap: 8px;
 }
 

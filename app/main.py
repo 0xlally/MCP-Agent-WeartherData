@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.core.config import settings
 from app.db.database import init_db
-from app.routers import auth, admin, weather, agent, mcp, mcp_data_agent
+from app.routers import auth, admin, weather, agent, mcp, mcp_data_agent, mcp_analysis_agent
 
 
 @asynccontextmanager
@@ -59,6 +59,7 @@ app.include_router(weather.router)   # 天气数据查询 (API Key 认证)
 app.include_router(agent.router)     # AI Agent 配置调整
 app.include_router(mcp.router)       # MCP 工具列表
 app.include_router(mcp_data_agent.router)  # MCP 数据 Agent HTTP 包装
+app.include_router(mcp_analysis_agent.router)  # MCP 分析 Agent HTTP 包装
 
 
 # ========== 根路由 ==========

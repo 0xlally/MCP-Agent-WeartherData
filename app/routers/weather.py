@@ -8,21 +8,20 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.db.database import get_db
-from app.models.models import APIKey, User, WeatherData
+from app.models.models import WeatherData
 from app.schemas.schemas import WeatherDataResponse
-from app.core.security import verify_api_key
 
 
 router = APIRouter(prefix="/weather", tags=["天气数据"])
 
 
+@router.get("")
 @router.get("/data")
 async def get_weather_data(
     city: str = Query(None, description="城市名称"),
     start_date: str = Query(None, description="开始日期 YYYY-MM-DD"),
     end_date: str = Query(None, description="结束日期 YYYY-MM-DD"),
     limit: int = Query(100, ge=1, le=1000, description="返回条数"),
-    api_key_data: Tuple[APIKey, User] = Depends(verify_api_key),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -51,14 +50,14 @@ async def get_weather_data(
     ]
     ```
     """
-    api_key, user = api_key_data
-    
     # 构建查询
     query = select(WeatherData)
-    
-    # 按城市筛选
+
+    # 按城市筛选（忽略大小写并去除首尾空格）
     if city:
-        query = query.where(WeatherData.city == city)
+        city_norm = city.strip()
+        if city_norm:
+            query = query.where(func.lower(WeatherData.city) == func.lower(city_norm))
     
     # 按日期范围筛选
     if start_date:
@@ -100,7 +99,6 @@ async def get_weather_data(
 
 @router.get("/stats")
 async def get_weather_stats(
-    api_key_data: Tuple[APIKey, User] = Depends(verify_api_key),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -108,8 +106,6 @@ async def get_weather_stats(
     
     返回数据总量、支持的城市列表、日期范围等
     """
-    api_key, user = api_key_data
-    
     # 查询总记录数
     count_query = select(func.count(WeatherData.id))
     count_result = await db.execute(count_query)
@@ -135,9 +131,5 @@ async def get_weather_stats(
         "date_range": {
             "start": date_range[0].strftime("%Y-%m-%d") if date_range and date_range[0] else None,
             "end": date_range[1].strftime("%Y-%m-%d") if date_range and date_range[1] else None
-        },
-        "user_info": {
-            "username": user.username,
-            "remaining_quota": api_key.remaining_quota
         }
     }

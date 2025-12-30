@@ -186,7 +186,11 @@ async def get_current_admin_user(
 # ========== API Key 验证依赖 ==========
 
 async def verify_api_key(
-    x_api_key: str = Header(..., description="API 密钥"),
+    x_api_key: str | None = Header(
+        default=None,
+        description="API 密钥",
+        convert_underscores=False,
+    ),
     db: AsyncSession = Depends(get_db)
 ) -> Tuple[APIKey, User]:
     """
@@ -203,6 +207,12 @@ async def verify_api_key(
     Raises:
         HTTPException: API Key 无效、额度不足或已禁用
     """
+    if not x_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="缺少 API Key"
+        )
+
     # 查询 API Key（基于明文存储的现状）
     result = await db.execute(
         select(APIKey).where(APIKey.access_key == x_api_key)

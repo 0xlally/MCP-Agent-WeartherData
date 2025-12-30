@@ -37,11 +37,15 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
+# 统一维护允许跨域的来源，确保 Vite 本地调试端口可访问
+allowed_origins = set(settings.CORS_ORIGINS or [])
+allowed_origins.add("http://localhost:5173")
+
 
 # ========== CORS 中间件配置 ==========
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=list(allowed_origins),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

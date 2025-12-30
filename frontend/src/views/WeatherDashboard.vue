@@ -43,6 +43,19 @@
     </table>
 
     <p v-else class="empty">No data. Try searching.</p>
+
+    <section class="tools" v-if="Object.keys(tools).length">
+      <h3>MCP Tools</h3>
+      <div v-for="(items, category) in tools" :key="category" class="tool-block">
+        <strong>{{ category }}</strong>
+        <ul>
+          <li v-for="tool in items" :key="tool.name">
+            {{ tool.name }} — {{ tool.description }}
+            <div class="tool-params" v-if="tool.params">params: {{ JSON.stringify(tool.params) }}</div>
+          </li>
+        </ul>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -58,6 +71,7 @@ const loading = ref(false);
 const rows = ref([]);
 const chartRef = ref(null);
 let chartInstance = null;
+const tools = ref([]);
 
 const buildOption = (data) => {
   const dates = data.map((d) => d.date || d.observed_at || '');
@@ -86,6 +100,15 @@ const renderChart = () => {
   chartInstance.setOption(buildOption(rows.value));
 };
 
+const loadTools = async () => {
+  try {
+    const { data } = await api.get('/mcp/tools');
+    tools.value = data?.tools || {};
+  } catch (e) {
+    console.error('Failed to load MCP tools', e);
+  }
+};
+
 const handleSearch = async () => {
   loading.value = true;
   try {
@@ -104,6 +127,7 @@ const handleSearch = async () => {
 
 onMounted(() => {
   renderChart();
+  loadTools();
   window.addEventListener('resize', resizeChart);
 });
 
@@ -212,5 +236,33 @@ watch(rows, renderChart);
   color: #6b7280;
   text-align: center;
   margin-top: 12px;
+}
+
+.tools {
+  margin-top: 18px;
+  padding: 14px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.tools h3 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
+.tool-block {
+  margin-bottom: 10px;
+}
+
+.tool-block strong {
+  color: #111827;
+}
+
+.tool-params {
+  margin: 4px 0 0 0;
+  font-size: 13px;
+  color: #374151;
+  white-space: pre-line;
 }
 </style>

@@ -6,20 +6,26 @@
         <h1>Weather Agent Platform</h1>
       </div>
       <nav class="nav">
+        <button :class="{ active: activeTab === 'chat' }" @click="activeTab = 'chat'">AI 对话</button>
+        <button :class="{ active: activeTab === 'dashboard' }" @click="activeTab = 'dashboard'">数据看板</button>
         <button @click="openBackend('/health')">Health</button>
         <button @click="openBackend('/weather/stats')">Stats</button>
         <button @click="openBackend('/weather?city=北京&limit=20')">Sample (北京)</button>
       </nav>
     </header>
     <main class="content">
-      <WeatherDashboard />
+      <AgentChat v-if="activeTab === 'chat'" />
+      <WeatherDashboard v-else />
     </main>
   </div>
 </template>
 
 <script setup>
+import { ref } from 'vue';
 import WeatherDashboard from './views/WeatherDashboard.vue';
+import AgentChat from './views/AgentChat.vue';
 
+const activeTab = ref('chat');
 const BACKEND_BASE = 'http://localhost:8080';
 const openBackend = (path) => {
   const url = `${BACKEND_BASE}${path}`;
@@ -89,6 +95,12 @@ const openBackend = (path) => {
   font-weight: 600;
 }
 
+.nav button.active {
+  background: #22d3ee;
+  color: #0f172a;
+  border-color: #22d3ee;
+}
+
 .nav button:hover {
   background: rgba(255, 255, 255, 0.16);
   border-color: rgba(255, 255, 255, 0.28);
@@ -96,8 +108,8 @@ const openBackend = (path) => {
 
 .content {
   flex: 1;
-  padding: 28px;
-  max-width: 1200px;
+  padding: 18px;
+  max-width: 1400px;
   margin: 0 auto;
   width: 100%;
 }

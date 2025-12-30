@@ -2,14 +2,14 @@
 安全认证模块
 实现 JWT 登录认证 和 API Key 验证
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 import uuid
 import hmac
 from sqlalchemy import update
 from jose import JWTError, jwt
 
-# ===== 变更说明 =====
+#变更说明
 # 下面导入的模块用于增强 JWT 与 API Key 的安全性：
 # - `uuid`：生成每个 JWT 的 `jti`（唯一标识符），便于将来实现 token 撤销、审计或去重。
 # - `hmac`：使用 `hmac.compare_digest` 做常量时间比较，减少时间侧信道泄露（用于比较 API Key）。
@@ -17,7 +17,7 @@ from jose import JWTError, jwt
 #
 # 说明：这些改进均限定在本文件内（仅修改本模块），以降低改动范围与回归风险；如果需要更强的保证（例如
 # 把 API Key 存为哈希、或添加持久化的撤销表），则需要跨文件/数据库的更改。
-# ==============================================
+
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status, Header
 from fastapi.security import OAuth2PasswordBearer
@@ -29,15 +29,15 @@ from app.models.models import User, APIKey
 from app.schemas.schemas import TokenData
 
 
-# ========== 密码加密配置 ==========
+#密码加密配置 
 # （修改）使用 Argon2 提升密码哈希安全性（需要在 requirements 中安装 passlib[argon2]）
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
-# ========== OAuth2 配置 ==========
+#OAuth2 配置
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 
-# ========== 密码哈希工具 ==========
+#密码哈希工具
 
 def get_password_hash(password: str) -> str:
     """加密密码"""
@@ -49,7 +49,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
-# ========== JWT Token 管理 ==========
+#JWT Token 管理
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """
@@ -64,10 +64,11 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     """
     to_encode = data.copy()
     
+    now_utc = datetime.now(timezone.utc)
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = now_utc + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = now_utc + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     
     # （修改）标准化声明：过期时间（exp）、颁发时间（iat）和唯一 id（jti）
     # 安全理由：
@@ -75,7 +76,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     # - `jti`（JWT ID）为 token 提供全局唯一标识，便于将来实现基于 jti 的撤销列表或一次性刷新策略；
     # - 在验证和审计流程中记录 jti 可以帮助发现重复使用或回放攻击。
     # 注意：此处只是在 token 中设置 jti/iat，本身不实现撤销逻辑；需要额外的存储（内存/DB）来跟踪被撤销的 jti。
-    iat = datetime.utcnow()
+    iat = now_utc
     jti = str(uuid.uuid4())
     to_encode.update({"exp": expire, "iat": iat, "jti": jti})
 
@@ -269,7 +270,7 @@ async def verify_api_key(
     stmt = (
         update(APIKey)
         .where(APIKey.id == api_key.id, APIKey.remaining_quota > 0)
-        .values(remaining_quota=APIKey.remaining_quota - 1, last_used_at=datetime.utcnow())
+        .values(remaining_quota=APIKey.remaining_quota - 1, last_used_at=datetime.now(timezone.utc))
     )
     res = await db.execute(stmt)
     await db.commit()

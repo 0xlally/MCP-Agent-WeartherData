@@ -1,6 +1,6 @@
 # 🌤️ 天气大数据服务平台
 
-基于 FastAPI 的天气数据管理和查询平台，支持双重认证、数据统计分析和 AI Agent 配置管理。
+基于 FastAPI 的天气数据管理和查询平台，支持双重认证、数据统计分析、AI Agent（MCP 协议）及前端可视化看板。
 
 ## 📋 功能特性
 
@@ -8,244 +8,107 @@
 - ✅ **天气数据管理**：93,682+ 条历史天气数据，覆盖 30 个城市
 - ✅ **RESTful API**：完整的 CRUD 接口，支持分页和复杂查询
 - ✅ **数据统计分析**：城市、日期、温度等多维度统计
+- ✅ **MCP AI Agent**：数据/分析工具（describe/group_by_period/compare/extreme/forecast），前端一键调用
+- ✅ **可视化看板**：Vue3 + ECharts，支持城市对比、聚合趋势、极值事件卡片，支持 JSON/Excel 下载
 - ✅ **系统配置管理**：动态配置爬虫间隔、缓存策略等
 - ✅ **异步架构**：基于 asyncio + SQLAlchemy 2.0
 - ✅ **Docker 支持**：一键部署
 
-## 🏗️ 项目结构
+# Weather Agent Platform
+
+基于 FastAPI 的天气数据服务，内置 MCP（Model Context Protocol）数据/分析工具与 Vue3 可视化看板。
+
+## 功能概览
+
+- 天气数据查询与统计：按城市、日期范围获取或聚合天气数据。
+- MCP 工具集：
+  - 数据类：data.get_range, data.get_dataset_overview, data.check_coverage, data.custom_query, data.update_city_range。
+  - 分析类：analysis.describe_timeseries, analysis.group_by_period, analysis.compare_cities, analysis.extreme_event_stats, analysis.simple_forecast。
+  - 城市名中英文映射，避免“Beijing/北京”不一致导致的空结果。
+- 前端可视化看板（Vue3 + ECharts）：
+  - group_by_period：柱线组合展示 mean/min/max/count，带分页表格。
+  - compare_cities：多城市均值/极值对比，图表 + 表格。
+  - describe / extreme：卡片式统计、极值事件天数。
+  - simple_forecast：未来趋势折线。
+  - 支持 JSON/Excel 下载，Agent 结果可一键“在看板查看”。
+- AI 对话（AgentChat）：自然语言触发 MCP 工具并返回结果。
+
+## 仓库结构
 
 ```
 MCP-Agent-WeartherData/
-├── app/
-│   ├── main.py              # FastAPI 应用入口
-│   ├── core/                # 核心功能
-│   │   ├── config.py        # 配置管理
-│   │   └── security.py      # 安全认证
-│   ├── db/                  # 数据库
-│   │   ├── database.py      # 异步数据库连接
-│   │   └── base.py          # ORM Base
-│   ├── models/              # 数据模型
-│   │   └── models.py        # User, APIKey, SystemConfig, WeatherData
-│   ├── schemas/             # Pydantic 验证
-│   │   └── schemas.py       # 请求/响应模型
-│   └── routers/             # API 路由
-│       ├── auth.py          # 用户注册/登录
-│       ├── admin.py         # 管理员功能
-│       ├── weather.py       # 天气数据查询
-│       └── agent.py         # Agent 配置管理
-├── data/                    # 数据文件
-│   └── weather_data_fast.csv
-├── scripts/                 # 工具脚本
-│   ├── init_db.py          # 数据库初始化
-│   ├── import_csv.py       # CSV 数据导入
-│   ├── setup_wizard.py     # 配置向导
-│   └── check_db_config.py  # 数据库配置检查
-├── tests/                   # 测试脚本
-│   ├── test_api.py         # API 功能测试
-│   └── test_weather_api.py # 天气数据测试
-├── .env                     # 环境变量
-├── requirements.txt         # Python 依赖
-├── docker-compose.yaml      # Docker 配置
-├── ARCHITECTURE.md          # 架构设计文档
-└── DEPLOYMENT.md            # 部署指南
+├── app/                 # FastAPI 后端（主应用、DB、路由）
+├── mcp_tools/           # MCP 工具实现（数据/分析）
+├── mcp_servers/         # MCP HTTP 服务器入口
+├── frontend/            # Vite + Vue3 前端（AgentChat、AnalysisDashboard）
+├── data/                # 天气数据（weather_data_fast.csv 等）
+├── scripts/             # 初始化、导入等脚本
+├── tests/               # 基础测试
+├── requirements.txt
+└── docker-compose.yaml
 ```
 
-## 🚀 快速开始
-
-### 方式一：一键启动（推荐）
+## 运行后端
 
 ```powershell
-# 1. 安装依赖
 pip install -r requirements.txt
-
-# 2. 配置数据库（首次需要）
-# 创建 .env 文件，设置 DATABASE_URL 和 SECRET_KEY
-
-# 3. 一键启动（自动完成初始化、导入数据、启动服务）
-python start.py
-```
-
-### 方式二：手动启动
-
-#### 1. 环境准备
-
-```powershell
-# 克隆项目
-git clone https://github.com/0xlally/MCP-Agent-WeartherData.git
-cd MCP-Agent-WeartherData
-
-# 安装依赖
-pip install -r requirements.txt
-```
-
-### 2. 配置数据库
-
-**方式一：本地 PostgreSQL**
-
-```powershell
-# 安装 PostgreSQL
-# 下载: https://www.postgresql.org/download/
-
-# 创建数据库
-psql -U postgres
-CREATE DATABASE weather_db;
-\q
-```
-
-**方式二：Docker**
-
-```powershell
-docker-compose up -d postgres
-```
-
-### 3. 配置环境变量
-
-创建 `.env` 文件：
-
-```env
-# 数据库配置
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/weather_db
-
-# JWT 密钥 (生成方式: openssl rand -hex 32)
-SECRET_KEY=your-secret-key-here
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-```
-
-### 4. 初始化数据库
-
-```powershell
-# 创建表结构和初始数据
-python scripts/init_db.py
-
-# 导入天气数据 (93,682 条记录)
-python scripts/import_csv.py
-```
-
-### 5. 启动服务
-
-```powershell
+# 确保 .env 中配置 DATABASE_URL、SECRET_KEY 等
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 ```
 
-访问：
-- **API 文档**: http://localhost:8080/docs
-- **ReDoc**: http://localhost:8080/redoc
-- **健康检查**: http://localhost:8080/
+常用入口：
+- Swagger 文档：http://localhost:8080/docs
+- Redoc：http://localhost:8080/redoc
 
-## 📝 API 使用示例
-
-### 1. 用户登录
-
-```bash
-curl -X POST "http://localhost:8080/auth/login" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=admin&password=admin123"
-```
-
-响应：
-```json
-{
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "token_type": "bearer"
-}
-```
-
-### 2. 创建 API Key
-
-```bash
-curl -X POST "http://localhost:8080/admin/api-keys" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "description": "My API Key",
-    "remaining_quota": 1000
-  }'
-```
-
-### 3. 查询天气数据
-
-```bash
-curl -X GET "http://localhost:8080/weather/data?city=北京&limit=10" \
-  -H "X-API-KEY: YOUR_API_KEY"
-```
-
-响应：
-```json
-[
-  {
-    "id": 1,
-    "city": "北京",
-    "date": "2025-12-02",
-    "weather_condition": "晴",
-    "temp_min": -2.0,
-    "temp_max": 8.0,
-    "wind_info": "北风 3-4级"
-  }
-]
-```
-
-### 4. 数据统计
-
-```bash
-curl -X GET "http://localhost:8080/weather/stats" \
-  -H "X-API-KEY: YOUR_API_KEY"
-```
-
-## 🧪 运行测试
+数据导入（如需）：
 
 ```powershell
-# 测试基础 API 功能
-python tests/test_api.py
-
-# 测试天气数据查询
-python tests/test_weather_api.py
+python scripts/init_db.py
+python scripts/import_csv.py
 ```
 
-## 📊 数据说明
+## 运行前端
 
-- **总记录数**: 93,682 条
-- **城市数量**: 30 个（北京、上海、广州、深圳、成都等）
-- **日期范围**: 2016-01-01 至 2025-12-02
-- **数据字段**: 城市、日期、天气状况、温度（最高/最低）、风力风向
+```powershell
+cd frontend
+npm install
+npm run dev
+# 访问 http://localhost:5173
+```
 
-## 🔐 认证说明
+前端主要页面：
+- AgentChat：自然语言触发 MCP 工具，结果可下载 JSON/Excel，可跳转看板。
+- AnalysisDashboard：按工具类型展示图表/卡片/表格（聚合、对比、极值、预测）。
 
-### JWT Token (管理员功能)
-- 用于用户登录认证
-- 访问管理员路由 (`/admin/*`, `/agent/*`)
-- 有效期：30 分钟
+## MCP 工具说明
 
-### API Key (数据访问)
-- 用于外部 API 调用
-- 访问天气数据路由 (`/weather/*`)
-- 支持额度管理和使用统计
+- 数据：
+  - data.get_range(city,start_date,end_date,limit)
+  - data.get_dataset_overview()
+  - data.check_coverage(city,start_date,end_date)
+  - data.custom_query(fields,city,start_date,end_date,limit)
+  - data.update_city_range(city,start_date,end_date)
+- 分析：
+  - analysis.describe_timeseries(city,metric,start_date,end_date)
+  - analysis.group_by_period(city,metric,period,start_date,end_date)
+  - analysis.compare_cities(cities,metric,start_date,end_date)
+  - analysis.extreme_event_stats(city,metric,threshold,comparison,start_date,end_date)
+  - analysis.simple_forecast(city,metric,horizon_days)
 
-## 📚 技术栈
+## 数据集
 
-- **Web 框架**: FastAPI 0.115.0
-- **数据库**: PostgreSQL + SQLAlchemy 2.0
-- **认证**: PyJWT + bcrypt
-- **异步**: asyncio + asyncpg
-- **数据处理**: pandas
-- **容器化**: Docker + Docker Compose
+- 示例文件：data/weather_data_fast.csv
+- 字段：city, date, weather_condition, temp_min, temp_max, wind_info 等
 
-## 📖 相关文档
+## 开发提示
 
-- [架构设计](ARCHITECTURE.md) - 详细的架构说明
-- [部署指南](DEPLOYMENT.md) - 生产环境部署
-- [API 文档](http://localhost:8080/docs) - Swagger UI
+- 城市名会在工具层做中英文归一化。
+- 前端看板需要后端返回的 lastAnalysisResult/Tool 才能正确渲染对应图表。
+- 对比与聚合图表使用 ECharts，若出现空白可检查容器尺寸或刷新后重试。
 
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-## 📄 许可证
+## 许可证
 
 MIT License
-
-## 👤 作者
-
 0xlally
 
 ## 🔗 相关链接

@@ -112,4 +112,5 @@
 - **name**：`analysis.simple_forecast`
 - **description**：基于历史时间序列，预测未来一段时间的指标值（简单模型即可）。
 
+对比北京和上海2023年的高温天气
 

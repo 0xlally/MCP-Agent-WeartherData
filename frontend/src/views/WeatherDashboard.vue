@@ -44,18 +44,6 @@
 
     <p v-else class="empty">No data. Try searching.</p>
 
-    <section class="tools" v-if="Object.keys(tools).length">
-      <h3>MCP Tools</h3>
-      <div v-for="(items, category) in tools" :key="category" class="tool-block">
-        <strong>{{ category }}</strong>
-        <ul>
-          <li v-for="tool in items" :key="tool.name">
-            {{ tool.name }} — {{ tool.description }}
-            <div class="tool-params" v-if="tool.params">params: {{ JSON.stringify(tool.params) }}</div>
-          </li>
-        </ul>
-      </div>
-    </section>
   </div>
 </template>
 
@@ -63,6 +51,7 @@
 import { onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import * as echarts from 'echarts';
 import api from '../api/client.js';
+import { dataRows } from '../store/uiStore.js';
 
 const city = ref('');
 const startDate = ref('');
@@ -71,7 +60,6 @@ const loading = ref(false);
 const rows = ref([]);
 const chartRef = ref(null);
 let chartInstance = null;
-const tools = ref([]);
 
 const buildOption = (data) => {
   const dates = data.map((d) => d.date || d.observed_at || '');
@@ -100,14 +88,6 @@ const renderChart = () => {
   chartInstance.setOption(buildOption(rows.value));
 };
 
-const loadTools = async () => {
-  try {
-    const { data } = await api.get('/mcp/tools');
-    tools.value = data?.tools || {};
-  } catch (e) {
-    console.error('Failed to load MCP tools', e);
-  }
-};
 
 const handleSearch = async () => {
   loading.value = true;
@@ -115,6 +95,7 @@ const handleSearch = async () => {
     const params = { city: city.value, start_date: startDate.value, end_date: endDate.value };
     const { data } = await api.get('/weather', { params });
     rows.value = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+    dataRows.value = rows.value;
     renderChart();
   } catch (err) {
     console.error('Failed to fetch weather', err);
@@ -126,8 +107,11 @@ const handleSearch = async () => {
 };
 
 onMounted(() => {
+  // 如果有来自 Agent 的共享数据，优先展示
+  if (Array.isArray(dataRows.value) && dataRows.value.length) {
+    rows.value = dataRows.value;
+  }
   renderChart();
-  loadTools();
   window.addEventListener('resize', resizeChart);
 });
 
@@ -144,6 +128,10 @@ const resizeChart = () => {
 };
 
 watch(rows, renderChart);
+
+watch(dataRows, (val) => {
+  rows.value = Array.isArray(val) ? val : [];
+});
 </script>
 
 <style scoped>
@@ -238,26 +226,6 @@ watch(rows, renderChart);
   margin-top: 12px;
 }
 
-.tools {
-  margin-top: 18px;
-  padding: 14px 12px;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  background: #f8fafc;
-}
-
-.tools h3 {
-  margin: 0 0 10px;
-  font-size: 16px;
-}
-
-.tool-block {
-  margin-bottom: 10px;
-}
-
-.tool-block strong {
-  color: #111827;
-}
 
 .tool-params {
   margin: 4px 0 0 0;

@@ -56,6 +56,7 @@
         <div class="actions">
           <button type="button" :disabled="!downloadable" @click="downloadJson">下载 JSON</button>
           <button type="button" :disabled="!hasTable" @click="downloadExcel">下载 Excel</button>
+          <button type="button" :disabled="!lastViewTab" @click="openDashboardView">在看板查看</button>
         </div>
         <div v-if="hasTable" class="table-wrap">
           <table>
@@ -80,6 +81,7 @@
 import { onMounted, ref, nextTick, computed } from 'vue';
 import { listTools, callTool } from '../api/agent.js';
 import * as XLSX from 'xlsx';
+import { activeTab, dataRows, analysisSeries, lastAnalysisResult, lastAnalysisTool } from '../store/uiStore.js';
 
 const DEFAULT_LLM_BASE = import.meta.env.VITE_LLM_BASE || 'https://api.deepseek.com/v1';
 const DEFAULT_LLM_KEY = import.meta.env.VITE_LLM_KEY || '';
@@ -95,11 +97,12 @@ const lastResult = ref(null);
 const downloadPayload = ref(null);
 const tableRows = ref([]);
 const tableColumns = ref([]);
+const lastViewTab = ref(''); // 'dashboard' | 'analysis' | ''
 const llmBaseUrl = ref(localStorage.getItem('llm_base') || DEFAULT_LLM_BASE);
 const llmApiKey = ref(localStorage.getItem('llm_key') || DEFAULT_LLM_KEY);
 const scrollRef = ref(null);
 
-const downloadable = computed(() => Array.isArray(downloadPayload.value) && downloadPayload.value.length > 0);
+const downloadable = computed(() => downloadPayload.value !== null);
 const previewResult = computed(() => {
   if (!lastResult.value) return '';
   return JSON.stringify(lastResult.value, null, 2).slice(0, 900);
@@ -237,6 +240,20 @@ const pickTable = (result) => {
   return { rows: arr, columns: cols };
 };
 
+const normalizeCity = (city) => {
+  if (!city) return city;
+  const map = {
+    beijing: '北京', shanghai: '上海', guangzhou: '广州', shenzhen: '深圳', chengdu: '成都', chongqing: '重庆', tianjin: '天津', hangzhou: '杭州',
+    nanjing: '南京', wuhan: '武汉', xian: '西安', changsha: '长沙', zhengzhou: '郑州', jinan: '济南', qingdao: '青岛', dalian: '大连', shenyang: '沈阳',
+    haerbin: '哈尔滨', changchun: '长春', fuzhou: '福州', xiamen: '厦门', nanning: '南宁', haikou: '海口', guiyang: '贵阳', hefei: '合肥',
+    lanzhou: '兰州', shijiazhuang: '石家庄', taiyuan: '太原', nanchang: '南昌', kunming: '昆明'
+  };
+  const low = city.trim().toLowerCase();
+  if (map[low]) return map[low];
+  // if already Chinese, keep
+  return city.trim();
+};
+
 const handleSend = async () => {
   const content = input.value.trim();
   if (!content) return;
@@ -253,6 +270,10 @@ const handleSend = async () => {
 
     const toolName = planResp.tool;
     const payload = { ...(planResp.arguments || {}) };
+    // normalize city for data/analysis tools to Chinese names when possible
+    if (payload.city && (toolName?.startsWith('data') || toolName?.startsWith('analysis'))) {
+      payload.city = normalizeCity(payload.city);
+    }
     // normalize metric for analysis tools
     if (toolName?.startsWith('analysis') || toolName?.startsWith('analysis_') || toolName?.startsWith('analysis.')) {
       const m = (payload.metric || '').toLowerCase();
@@ -290,6 +311,26 @@ const handleSend = async () => {
     const { rows: tRows, columns: tCols } = pickTable(result);
     tableRows.value = tRows;
     tableColumns.value = tCols;
+
+    // 将结果同步到全局 store，并记录可跳转的目标看板，但不自动切换
+    lastViewTab.value = '';
+    if (apiTool.startsWith('data.')) {
+      // 数据 Agent：优先使用 items，其次表格行或回退 payload
+      const rowsPayload = Array.isArray(result?.items) ? result.items : (Array.isArray(tRows) ? tRows : pickDownloadPayload(result) || []);
+      dataRows.value = rowsPayload;
+      if (Array.isArray(dataRows.value) && dataRows.value.length) {
+        lastViewTab.value = 'dashboard';
+      }
+    } else if (apiTool.startsWith('analysis.')) {
+      // 分析 Agent：优先使用 series，其次表格行
+      const seriesData = Array.isArray(result?.series) && result.series.length ? result.series : tRows;
+      analysisSeries.value = Array.isArray(seriesData) ? seriesData : [];
+      lastAnalysisResult.value = result;
+      lastAnalysisTool.value = apiTool;
+      if (Array.isArray(analysisSeries.value) && analysisSeries.value.length) {
+        lastViewTab.value = 'analysis';
+      }
+    }
   } catch (err) {
     console.error(err);
     messages.value.push({ role: 'assistant', content: `出错: ${err?.message || err}` });
@@ -325,6 +366,11 @@ const downloadExcel = () => {
   a.download = 'weather_agent_result.xlsx';
   a.click();
   URL.revokeObjectURL(url);
+};
+
+const openDashboardView = () => {
+  if (!lastViewTab.value) return;
+  activeTab.value = lastViewTab.value;
 };
 
 onMounted(() => {

@@ -56,6 +56,27 @@ _CITY_PINYIN = {
 }
 
 
+def _normalize_city_name(city: Optional[str]) -> Optional[str]:
+    """Normalize city names so that 'Beijing'/'beijing' match '北京'.
+
+    Uses the shared _CITY_PINYIN mapping. If input is already a known Chinese
+    name (any casing), it is returned as-is; if it matches a pinyin key, the
+    corresponding Chinese name is returned; otherwise the original string.
+    """
+    if not city:
+        return city
+    raw = city.strip()
+    low = raw.lower()
+    # pinyin/en key -> Chinese name
+    if low in _CITY_PINYIN:
+        return _CITY_PINYIN[low]
+    # already Chinese match or other casing
+    for p, cn in _CITY_PINYIN.items():
+        if low == cn.lower():
+            return cn
+    return raw
+
+
 def _find_city_pinyin(city: str) -> Optional[str]:
     city = city.strip()
     # exact Chinese match
@@ -148,6 +169,8 @@ def _fetch_month(city_pinyin: str, city_name: str, year: int, month: str) -> Lis
 async def tool_get_range(city: Optional[str], start_date: Optional[str], end_date: Optional[str], limit: int = 500) -> Dict[str, Any]:
     start = _parse_date(start_date)
     end = _parse_date(end_date)
+    if city:
+        city = _normalize_city_name(city)
     async with await _get_session() as db:
         query = select(WeatherData)
         if city:
@@ -191,6 +214,7 @@ async def tool_get_dataset_overview() -> Dict[str, Any]:
 
 
 async def tool_check_coverage(city: str, start_date: str, end_date: str) -> Dict[str, Any]:
+    city = _normalize_city_name(city)
     start = _parse_date(start_date)
     end = _parse_date(end_date)
     if not (city and start and end):
@@ -229,6 +253,8 @@ async def tool_custom_query(fields: List[str], city: Optional[str], start_date: 
     selected = [f for f in fields if f in ALLOWED_FIELDS]
     if not selected:
         selected = ["city", "date", "temp_min", "temp_max", "weather_condition", "wind_info"]
+    if city:
+        city = _normalize_city_name(city)
     start = _parse_date(start_date)
     end = _parse_date(end_date)
 
@@ -255,6 +281,7 @@ async def tool_custom_query(fields: List[str], city: Optional[str], start_date: 
 
 
 async def tool_update_city_range(city: str, start_date: str, end_date: str) -> Dict[str, Any]:
+    city = _normalize_city_name(city)
     start = _parse_date(start_date)
     end = _parse_date(end_date)
     if not (city and start and end):

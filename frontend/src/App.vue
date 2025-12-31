@@ -8,29 +8,25 @@
       <nav class="nav">
         <button :class="{ active: activeTab === 'chat' }" @click="activeTab = 'chat'">AI 对话</button>
         <button :class="{ active: activeTab === 'dashboard' }" @click="activeTab = 'dashboard'">数据看板</button>
-        <button @click="openBackend('/health')">Health</button>
-        <button @click="openBackend('/weather/stats')">Stats</button>
-        <button @click="openBackend('/weather?city=北京&limit=20')">Sample (北京)</button>
+        <button :class="{ active: activeTab === 'analysis' }" @click="activeTab = 'analysis'">分析看板</button>
+        <button :class="{ active: activeTab === 'stats' }" @click="activeTab = 'stats'">Stats</button>
       </nav>
     </header>
     <main class="content">
       <AgentChat v-if="activeTab === 'chat'" />
-      <WeatherDashboard v-else />
+      <WeatherDashboard v-else-if="activeTab === 'dashboard'" />
+      <AnalysisDashboard v-else-if="activeTab === 'analysis'" />
+      <StatsDashboard v-else />
     </main>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { activeTab } from './store/uiStore.js';
 import WeatherDashboard from './views/WeatherDashboard.vue';
 import AgentChat from './views/AgentChat.vue';
-
-const activeTab = ref('chat');
-const BACKEND_BASE = 'http://localhost:8080';
-const openBackend = (path) => {
-  const url = `${BACKEND_BASE}${path}`;
-  window.open(url, '_blank');
-};
+import AnalysisDashboard from './views/AnalysisDashboard.vue';
+import StatsDashboard from './views/StatsDashboard.vue';
 </script>
 
 <style scoped>
